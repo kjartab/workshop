@@ -1,0 +1,210 @@
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet"  href="facilit.css">
+    <link rel="stylesheet"  href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.css">
+</head>
+
+<body>
+
+    <div id="search-container">
+        <input id="search" autocomplete="off" placeholder="Søk på adresse eller matrikkelenhet"></input>
+        <div id="results"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.3.14/proj4.js"></script>
+    <script src="node_modules/leaflet-webatlastile/L.TileLayer.Webatlas.min.js"></script>
+    <script src="https://code.jquery.com/jquery-2.2.3.min.js"></script>
+
+
+    <script src="config.js"></script>
+
+
+    <script>
+        var api_key = config.service_key;
+        var map = L.map('map', {zoomControl: false}).setView([61.3999272955946,5.7503078840252], 5);
+
+        var mapLayer = L.tileLayer.webatlas({apikey: config.map_key, mapType: L.TileLayer.Webatlas.Type.GREY}).addTo(map);
+        var $results = $('#results');
+
+        $('#search').on('keyup', function (e) {
+            var inputVal = $('#search').val();
+            suggest(inputVal, showResults);
+        });
+
+        function cleanMap() {
+            map.eachLayer(function (layer) {
+                if (layer !== mapLayer) {
+                    map.removeLayer(layer);
+                }
+            });
+        }
+
+        function showResults(data) {
+
+           $results.empty();
+           for (var i=0; i<data.Options.length; i++) {
+                var opt = data.Options[i];
+
+                var el = '<p>ikke handetert: ' + opt.Text + '</p>';
+
+                switch (opt.Type) {
+                    case 'gateadresse':
+                        el = $('<p>'+ opt.Text + '</p>').click({matrikkelnummer: opt.PayLoad.AdresseMatrikkelNummer } , function(e) {           
+                            cleanMap();         
+                            getTeigerForMatrikkelnummmer(e.data.matrikkelnummer);
+                            getBygningerForMatrikkelnummer(e.data.matrikkelnummer);
+                        });
+                        break;
+
+                    case 'matrikkelenhet':
+                        el = $('<p>'+ opt.Text + '</p>').click({matrikkelnummer: opt.Id } , function(e) {           
+                            cleanMap();         
+                            getTeigerForMatrikkelnummmer(e.data.matrikkelnummer);
+                            getBygningerForMatrikkelnummer(e.data.matrikkelnummer);
+                        });
+                        break;
+                }
+
+                $results.append(el);
+            }
+
+        }
+
+        function suggest(val, success) {
+            $.get({
+            url: "https://www.webatlas.no/waapi-fritekstsok/suggest/matrikkel/matrikkelenhetoggateadresse?query=" + val + "&format=json&GeometryTextFormat=GeoJson&srs=4326&api_key="+config.service_key,
+            success: function(data) {
+                showResults(data);            
+            }
+
+            });
+        }
+
+        /* ----------- temporary ----------- */
+        proj4.defs('WGS84', "+title=WGS 84 (long/lat) +proj=longlat +ellps=WGS84 +datum=WGS84 +units=degrees");
+        proj4.defs('EPSG32632', '+proj=utm +zone=32 +ellps=WGS84 +datum=WGS84 +units=m +no_defs');
+        proj4.defs('EPSG32633', '+proj=utm +zone=33 +ellps=WGS84 +datum=WGS84 +units=m +no_defs');
+        proj4.defs('EPSG32635', '+proj=utm +zone=35 +ellps=WGS84 +datum=WGS84 +units=m +no_defs');
+
+        function temporary_fix_utm_coords(coordsSystem, coordinates) {
+            return proj4('EPSG'+coordsSystem, 'WGS84', coordinates);
+        }
+        /* ---------------------------------- */
+
+        function getTeigerForMatrikkelnummmer(matrikkelnummer) {
+            $.get({
+                url : "https://www.webatlas.no/WAAPI-Matrikkelkart/teig/matrikkelnummer?Matrikkelnummer=" + matrikkelnummer + "&GeometryTextFormat=GeoJson&format=json&api_key=" + config.service_key,
+            success: function(data) {
+
+                var teiger = data.Teiger;
+                var bounds = null;
+
+                for (var i=0; i<teiger.length; i++) {
+
+                    var teig = teiger[i];
+                    var teigGeom = JSON.parse(teig.Geometri);                
+                    var layer = L.geoJson(teigGeom).addTo(map);
+
+                    layer.bindPopup('<p>TeigID: ' + teig.Id +'</p><p>Koba til Matrikkelenhet: ' + teig.GIDTekst + '</p>');
+                    layer.bringToBack();
+
+
+                    if (bounds) {
+                        bounds.extend(layer.getBounds());
+                    } else {
+                        bounds = layer.getBounds();
+                    }
+
+                }
+                if (bounds) {
+                    map.fitBounds(bounds);
+                } else {
+                    alert("Ingen geometrisk utstrekning for matrikkelenheter " +  matrikkelnummer);
+                }
+                
+                
+            }
+
+            });
+        }
+
+        function getBygningerForMatrikkelnummer(matrikkelnummer, success) {
+            $.get({
+                url: 'https://www.webatlas.no/WAAPI-MatrikkelGrunnbok/matrikkelenhet/bygninger/' + matrikkelnummer + '?api_key=' + config.service_key + '&format=json&SRS=4326',
+                success: function(data) {
+                    if (data.Bygninger) {
+
+                        var bygninger = data.Bygninger;
+                        for (var i=0; i<bygninger.length; i++) {
+                            addBygning(bygninger[i]);
+                        }
+                        
+                    }
+                }
+            });
+        }
+
+
+        function addBygning(bygning) {
+
+            var coords = [ bygning.X, bygning.Y];
+            if (bygning.SRS != '4326') {
+                var coords = temporary_fix_utm_coords(bygning.SRS, [bygning.Y, bygning.X]);
+                bygning.X = coords[0];
+                bygning.Y = coords[1];
+            }
+
+
+            var bygningCircle = L.circle([coords[1], coords[0]], 5, {
+                color: 'red',
+                fillColor: '#f03',
+                fillOpacity: 0.5
+            });
+
+            var popupHtml = '<p>' + bygning.BygningstypeKode.Beskrivelse + '</p><p>Byggningsnummer: ' + bygning.ByggIdent.BygningsNummer + '</p>';
+
+            bygningCircle.bindPopup(popupHtml);
+            bygningCircle.on('click', function(e) {
+                console.log(e);
+            });
+
+            bygningCircle.addTo(map);
+        }
+
+
+        function getBygningForBygningsnummer(bygningsnummer, success) {
+            $.get({
+                url: 'https://www.webatlas.no/WAAPI-MatrikkelGrunnbok/bygninger/' + bygningsnummer + '?api_key=' + config.service_key + '&format=json&SRS=4326',
+                success: function(data) {
+                    if (data.Bygning) {
+                        console.log(data.Bygning);
+                        addBygning(data.Bygning);
+                    }
+
+                }
+            });
+        }
+
+     
+
+
+
+        // Hent ut en enkelt bygning
+        // getBygningForBygningsnummer('10519217');
+
+        // hent ut teiger og bygninger knyttet til et matrikkelnummer
+        getBygningerForMatrikkelnummer('14010002605070000000');
+        getTeigerForMatrikkelnummmer('14010002605070000000');
+
+    </script>
+
+
+
+
+</body>
+</html>

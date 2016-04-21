@@ -1,0 +1,39 @@
+body, html {
+    margin:0;
+    padding:0;
+    width:100%;
+    height:100%;
+}
+
+#results {
+    position:absolute;
+    z-index:20000;
+    width:250px;
+    top:22px;
+    height:auto;
+    background-color:white;
+}
+#results p{
+    padding: 10px;
+    margin:0;
+}
+
+#results p:hover{
+    background-color: #efefef;
+    cursor:pointer;
+}
+
+#search-container input {
+    position:absolute;
+    z-index:20000;
+    width: 250px;
+}
+
+#map {
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:0;
+    top:0px;
+}
+
