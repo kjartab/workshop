@@ -1,2 +1,5 @@
-"# facilit_workshop" 
 "# workshop" 
+
+npm install
+
+åpne index.html i browser
